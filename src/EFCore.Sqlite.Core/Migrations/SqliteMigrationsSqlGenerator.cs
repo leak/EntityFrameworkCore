@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Internal;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Metadata.Internal;
+using Microsoft.EntityFrameworkCore.Migrations.Internal;
 using Microsoft.EntityFrameworkCore.Migrations.Operations;
 using Microsoft.EntityFrameworkCore.Utilities;
 
@@ -16,37 +17,145 @@ namespace Microsoft.EntityFrameworkCore.Migrations
 {
     public class SqliteMigrationsSqlGenerator : MigrationsSqlGenerator
     {
+        private Dictionary<string, List<RenameColumnOperation>> _tableRebuilds = new Dictionary<string, List<RenameColumnOperation>>();
+
         public SqliteMigrationsSqlGenerator([NotNull] MigrationsSqlGeneratorDependencies dependencies)
-            : base(dependencies)
-        {
-        }
+            : base(dependencies) { }
 
         public override IReadOnlyList<MigrationCommand> Generate(IReadOnlyList<MigrationOperation> operations, IModel model = null)
-            => base.Generate(LiftForeignKeyOperations(operations), model);
+            => base.Generate(WorkAroundSqliteLimitations(operations, model), model);
 
-        private static IReadOnlyList<MigrationOperation> LiftForeignKeyOperations(IReadOnlyList<MigrationOperation> migrationOperations)
+        private IReadOnlyList<MigrationOperation> WorkAroundSqliteLimitations(IReadOnlyList<MigrationOperation> migrationOperations, IModel model)
         {
             var operations = new List<MigrationOperation>();
             foreach (var operation in migrationOperations)
             {
-                var foreignKeyOperation = operation as AddForeignKeyOperation;
-                if (foreignKeyOperation != null)
+                switch (operation)
                 {
-                    var table = migrationOperations
-                        .OfType<CreateTableOperation>()
-                        .FirstOrDefault(o => o.Name == foreignKeyOperation.Table);
+                    case AddForeignKeyOperation foreignKeyOperation:
+                        var table = migrationOperations
+                            .OfType<CreateTableOperation>()
+                            .FirstOrDefault(o => o.Name == foreignKeyOperation.Table);
 
-                    if (table != null)
+                        // If corresponding CreateTableOperation is found move the foreign key creation inside, otherwise trigger rebuild of existing table
+                        if (table != null)
+                        {
+                            table.ForeignKeys.Add(foreignKeyOperation);
+                        }
+                        else
+                        {
+                            RegisterTableForRebuild(foreignKeyOperation.Table);
+                        }
+                        break;
+                    case AddPrimaryKeyOperation addPrimaryKeyOperation:
+                        RegisterTableForRebuild(addPrimaryKeyOperation.Table);
+                        break;
+                    case AddUniqueConstraintOperation addUniqueConstraintOperation:
+                        RegisterTableForRebuild(addUniqueConstraintOperation.Table);
+                        break;
+                    case DropColumnOperation dropColumnOperation:
+                        RegisterTableForRebuild(dropColumnOperation.Table);
+                        break;
+                    case DropForeignKeyOperation dropForeignKeyOperation:
+                        RegisterTableForRebuild(dropForeignKeyOperation.Table);
+                        break;
+                    case DropPrimaryKeyOperation dropPrimaryKeyOperation:
+                        RegisterTableForRebuild(dropPrimaryKeyOperation.Table);
+                        break;
+                    case DropUniqueConstraintOperation dropUniqueConstraintOperation:
+                        RegisterTableForRebuild(dropUniqueConstraintOperation.Table);
+                        break;
+                    case RenameColumnOperation renameColumnOperation:
+                        RegisterTableForRebuild(renameColumnOperation.Table, renameColumnOperation);
+                        break;
+                    case RenameIndexOperation renameIndexOperation:
+                        RegisterTableForRebuild(renameIndexOperation.Table);
+                        break;
+                    case AlterColumnOperation alterColumnOperation:
+                        RegisterTableForRebuild(alterColumnOperation.Table);
+                        break;
+                    default:
+                        operations.Add(operation);
+                        break;
+                }
+            }
+
+            operations.AddRange(GenerateTableRebuilds(model));
+
+            return operations.AsReadOnly();
+        }
+
+        private void RegisterTableForRebuild(string tableName, RenameColumnOperation operation = null)
+        {
+            if (!_tableRebuilds.ContainsKey(tableName))
+            {
+                _tableRebuilds.Add(tableName, new List<RenameColumnOperation>());
+            }
+
+            if (operation != null)
+            {
+                _tableRebuilds[tableName].Add(operation);
+            }
+        }
+
+        /// <summary>
+        /// Table rebuild according to https://sqlite.org/lang_altertable.html
+        /// </summary>
+        private IEnumerable<MigrationOperation> GenerateTableRebuilds(IModel model)
+        {
+            var operations = new List<MigrationOperation>();
+            foreach (var table in _tableRebuilds)
+            {
+                var modelDiffer = new MigrationsModelDiffer(Dependencies.TypeMapper, Dependencies.MigrationsAnnotationProvider);
+
+                var diffs = modelDiffer.GetDifferences(null, model);
+
+                var createTableOperation = (CreateTableOperation)diffs.First(y =>
+                    y.GetType() == typeof(CreateTableOperation) && ((CreateTableOperation)y).Name == table.Key);
+
+                createTableOperation.Name = table.Key + "_new";
+
+                var indexOperations = diffs.Where(y =>
+                    y.GetType() == typeof(CreateIndexOperation) && ((CreateIndexOperation)y).Name.Contains("IX_" + table.Key)).ToList();
+
+                operations.Add(new SqlOperation { Sql = "PRAGMA foreign_keys=OFF;", SuppressTransaction = true });
+
+                operations.Add(createTableOperation);
+
+                var insertColumns = createTableOperation.Columns.Select(y => y.Name);
+
+                var selectColumns = new List<string>();
+
+                foreach (var insertColumn in insertColumns)
+                {
+                    var renameColumnOperation = table.Value.FirstOrDefault(y => y.NewName == insertColumn);
+
+                    if (renameColumnOperation != null)
                     {
-                        table.ForeignKeys.Add(foreignKeyOperation);
-                        //do not add to fk operation migration
-                        continue;
+                        selectColumns.Add(renameColumnOperation.Name);
+                    }
+                    else
+                    {
+                        selectColumns.Add(insertColumn);
                     }
                 }
 
-                operations.Add(operation);
+                operations.Add(new SqlOperation
+                {
+                    Sql = $"INSERT INTO {table.Key + "_new"} ({ColumnList(insertColumns.ToArray())}) " +
+                          $"SELECT {ColumnList(selectColumns.ToArray())} FROM {table.Key}"
+                });
+
+                operations.Add(new DropTableOperation { Name = table.Key });
+
+                operations.Add(new RenameTableOperation { Name = table.Key + "_new", NewName = table.Key });
+
+                operations.AddRange(indexOperations);
+
+                operations.Add(new SqlOperation { Sql = "PRAGMA foreign_keys=ON;", SuppressTransaction = true });
             }
-            return operations.AsReadOnly();
+
+            return operations;
         }
 
         protected override void Generate(DropIndexOperation operation, IModel model, MigrationCommandListBuilder builder)
