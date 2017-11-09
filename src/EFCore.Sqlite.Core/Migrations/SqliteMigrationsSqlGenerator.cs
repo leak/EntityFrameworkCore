@@ -116,7 +116,7 @@ namespace Microsoft.EntityFrameworkCore.Migrations
                 createTableOperation.Name = table.Key + "_new";
 
                 var indexOperations = diffs.Where(y =>
-                    y.GetType() == typeof(CreateIndexOperation) && ((CreateIndexOperation)y).Name.Contains("IX_" + table.Key)).ToList();
+                    y.GetType() == typeof(CreateIndexOperation) && ((CreateIndexOperation)y).Name.StartsWith($"IX_{table.Key}_")).ToList();
 
                 operations.Add(new SqlOperation { Sql = "PRAGMA foreign_keys=OFF;", SuppressTransaction = true });
 
