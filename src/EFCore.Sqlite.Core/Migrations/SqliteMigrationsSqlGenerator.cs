@@ -17,16 +17,24 @@ namespace Microsoft.EntityFrameworkCore.Migrations
 {
     public class SqliteMigrationsSqlGenerator : MigrationsSqlGenerator
     {
-        private Dictionary<string, List<RenameColumnOperation>> _tableRebuilds = new Dictionary<string, List<RenameColumnOperation>>();
+        private readonly IMigrationsAnnotationProvider _migrationsAnnotations;
 
-        public SqliteMigrationsSqlGenerator([NotNull] MigrationsSqlGeneratorDependencies dependencies)
-            : base(dependencies) { }
+        private readonly Dictionary<string, List<RenameColumnOperation>> _tableRebuilds = new Dictionary<string, List<RenameColumnOperation>>();
+
+        public SqliteMigrationsSqlGenerator(
+            [NotNull] MigrationsSqlGeneratorDependencies dependencies,
+            [NotNull] IMigrationsAnnotationProvider migrationsAnnotations)
+            : base(dependencies)
+            => _migrationsAnnotations = migrationsAnnotations;
 
         public override IReadOnlyList<MigrationCommand> Generate(IReadOnlyList<MigrationOperation> operations, IModel model = null)
             => base.Generate(WorkAroundSqliteLimitations(operations, model), model);
 
         private IReadOnlyList<MigrationOperation> WorkAroundSqliteLimitations(IReadOnlyList<MigrationOperation> migrationOperations, IModel model)
         {
+            // There could be multiple calls issued to Generate(), so need to reset state on each call
+            _tableRebuilds.Clear();
+
             var operations = new List<MigrationOperation>();
             foreach (var operation in migrationOperations)
             {
@@ -106,7 +114,7 @@ namespace Microsoft.EntityFrameworkCore.Migrations
             var operations = new List<MigrationOperation>();
             foreach (var table in _tableRebuilds)
             {
-                var modelDiffer = new MigrationsModelDiffer(Dependencies.TypeMapper, Dependencies.MigrationsAnnotationProvider);
+                var modelDiffer = new MigrationsModelDiffer(Dependencies.TypeMapper, _migrationsAnnotations);
 
                 var diffs = modelDiffer.GetDifferences(null, model);
 
