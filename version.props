@@ -37,7 +37,7 @@
     <VersionSuffix Condition=" '$(VersionSuffix)' == '' ">$(PreReleaseLabel).$(_BuildNumberSuffix)</VersionSuffix>
 
     <!-- Run the build with /p:IsFinalBuild=true to produce the product with 'final' branding and versioning -->
-    <IsFinalBuild Condition=" '$(IsFinalBuild)' == '' ">false</IsFinalBuild>
+    <IsFinalBuild Condition=" '$(IsFinalBuild)' == '' ">true</IsFinalBuild>
     <IncludePreReleaseLabelInPackageVersion>true</IncludePreReleaseLabelInPackageVersion>
     <IncludePreReleaseLabelInPackageVersion Condition=" '$(IsFinalBuild)' == 'true' AND ('$(PreReleaseLabel)' == 'servicing' OR '$(PreReleaseLabel)' == 'rtm')">false</IncludePreReleaseLabelInPackageVersion>
 

@@ -125,7 +125,7 @@ namespace Microsoft.EntityFrameworkCore.Sqlite.Storage.Internal
                 Mode = SqliteOpenMode.ReadOnly
             };
 
-            var contextOptions = new DbContextOptionsBuilder().UseSqlite(connectionStringBuilder.ToString()).Options;
+            var contextOptions = new DbContextOptionsBuilder().UseSqliteX(connectionStringBuilder.ToString()).Options;
 
             return new SqliteRelationalConnection(Dependencies.With(contextOptions), _rawSqlCommandBuilder);
         }

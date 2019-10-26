@@ -23,7 +23,7 @@ namespace Microsoft.EntityFrameworkCore
         /// <param name="connectionString"> The connection string of the database to connect to. </param>
         /// <param name="sqliteOptionsAction">An optional action to allow additional SQLite specific configuration.</param>
         /// <returns> The options builder so that further configuration can be chained. </returns>
-        public static DbContextOptionsBuilder UseSqlite(
+        public static DbContextOptionsBuilder UseSqliteX(
             [NotNull] this DbContextOptionsBuilder optionsBuilder,
             [NotNull] string connectionString,
             [CanBeNull] Action<SqliteDbContextOptionsBuilder> sqliteOptionsAction = null)
@@ -52,7 +52,7 @@ namespace Microsoft.EntityFrameworkCore
         /// </param>
         /// <param name="sqliteOptionsAction">An optional action to allow additional SQLite specific configuration.</param>
         /// <returns> The options builder so that further configuration can be chained. </returns>
-        public static DbContextOptionsBuilder UseSqlite(
+        public static DbContextOptionsBuilder UseSqliteX(
             [NotNull] this DbContextOptionsBuilder optionsBuilder,
             [NotNull] DbConnection connection,
             [CanBeNull] Action<SqliteDbContextOptionsBuilder> sqliteOptionsAction = null)
@@ -83,7 +83,7 @@ namespace Microsoft.EntityFrameworkCore
             [NotNull] string connectionString,
             [CanBeNull] Action<SqliteDbContextOptionsBuilder> sqliteOptionsAction = null)
             where TContext : DbContext
-            => (DbContextOptionsBuilder<TContext>)UseSqlite(
+            => (DbContextOptionsBuilder<TContext>)UseSqliteX(
                 (DbContextOptionsBuilder)optionsBuilder, connectionString, sqliteOptionsAction);
 
         /// <summary>
@@ -103,7 +103,7 @@ namespace Microsoft.EntityFrameworkCore
             [NotNull] DbConnection connection,
             [CanBeNull] Action<SqliteDbContextOptionsBuilder> sqliteOptionsAction = null)
             where TContext : DbContext
-            => (DbContextOptionsBuilder<TContext>)UseSqlite(
+            => (DbContextOptionsBuilder<TContext>)UseSqliteX(
                 (DbContextOptionsBuilder)optionsBuilder, connection, sqliteOptionsAction);
 
         private static SqliteOptionsExtension GetOrCreateExtension(DbContextOptionsBuilder options)
